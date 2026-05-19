@@ -1,28 +1,26 @@
 package bot
 
 import (
-	"log"
+	"fmt"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-const cmd = "!q"
-
-// hasPrefix は !q の後に半角スペース・全角スペース・タブが続くか確認する
-func hasPrefix(s string) bool {
-	if !strings.HasPrefix(s, cmd) {
+// hasPrefix はメッセージが指定プレフィックスの後に区切り文字（半角/全角スペース・タブ）を持つか確認する
+func hasPrefix(s, prefix string) bool {
+	if !strings.HasPrefix(s, prefix) {
 		return false
 	}
-	rest := s[len(cmd):]
+	rest := s[len(prefix):]
 	return strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, "　") || strings.HasPrefix(rest, "\t")
 }
 
-// trimPrefix は !q と直後の区切り文字を除いた本文を返す
-func trimPrefix(s string) string {
-	return strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(s[len(cmd):], " "), "　"), "\t")
+// trimPrefix はプレフィックスと直後の区切り文字を除いた本文を返す
+func trimPrefix(s, prefix string) string {
+	rest := s[len(prefix):]
+	return strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(rest, " "), "　"), "\t")
 }
-
 
 func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
@@ -34,23 +32,17 @@ func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if !hasPrefix(m.Content) {
-		s.ChannelMessageSend(m.ChannelID, "使い方: `!q <質問内容>`")
-		return
+	for _, cmd := range b.commands {
+		if hasPrefix(m.Content, cmd.prefix) {
+			content := strings.TrimSpace(trimPrefix(m.Content, cmd.prefix))
+			cmd.handler(s, m, content)
+			return
+		}
 	}
 
-	content := strings.TrimSpace(trimPrefix(m.Content))
-	if content == "" {
-		s.ChannelMessageSend(m.ChannelID, "エラー: 質問内容を入力してください。")
-		return
+	var lines []string
+	for _, cmd := range b.commands {
+		lines = append(lines, fmt.Sprintf("`%s` - %s", cmd.prefix, cmd.description))
 	}
-
-	_, err = s.ChannelMessageSend(b.config.TargetChannelID, "【匿名の質問】"+content)
-	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "エラー: 質問を投稿できませんでした。しばらくしてから再試行してください。")
-		log.Printf("チャンネル %s への投稿に失敗: %v", b.config.TargetChannelID, err)
-		return
-	}
-
-	s.ChannelMessageSend(m.ChannelID, "✅ 質問を匿名で投稿しました！")
+	s.ChannelMessageSend(m.ChannelID, "使い方:\n"+strings.Join(lines, "\n"))
 }
